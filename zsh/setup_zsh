@@ -2,4 +2,8 @@
 
 DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 
+if [ -f "$HOME/.zshrc" ]; then
+    mv "$HOME/.zshrc" "$HOME/.zshrc.bak"
+fi
+
 ln -fs $DIR/.zshrc ~/.zshrc
