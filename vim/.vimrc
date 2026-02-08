@@ -19,5 +19,9 @@ let g:solarized_termtrans=1
 " in ~/.vim/colors/ and uncomment:
 colorscheme solarized
 
+
 set listchars=tab:▸\ ,eol:¬
 set list
+
+autocmd FileType json setlocal expandtab tabstop=2 shiftwidth=2 softtabstop=2
+autocmd FileType ts setlocal expandtab tabstop=2 shiftwidth=2 softtabstop=2
