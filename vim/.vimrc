@@ -11,13 +11,16 @@ set visualbell
 set encoding=utf-8
 
 " Color scheme (terminal)
-set t_Co=256
+if !has('nvim')
+    " Neovim removed the t_* termcap options.
+    set t_Co=256
+endif
 set background=dark
 let g:solarized_termcolors=256
 let g:solarized_termtrans=1
 " put https://raw.github.com/altercation/vim-colors-solarized/master/colors/solarized.vim
 " in ~/.vim/colors/ and uncomment:
-colorscheme solarized
+silent! colorscheme solarized
 
 
 set listchars=tab:▸\ ,eol:¬
