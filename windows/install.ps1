@@ -53,6 +53,108 @@ function Install-WinGetPackage {
 
 Install-WinGetPackage -Id 'Microsoft.VisualStudioCode.Insiders'
 Install-WinGetPackage -Id 'Neovim.Neovim'
+Install-WinGetPackage -Id 'JanDeDobbeleer.OhMyPosh'
+Install-WinGetPackage -Id 'Microsoft.WindowsTerminal'
+
+$ohMyPoshCandidates = @(
+    (Get-Command oh-my-posh -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Source),
+    (Join-Path $env:LOCALAPPDATA 'Programs\oh-my-posh\bin\oh-my-posh.exe'),
+    (Join-Path $env:LOCALAPPDATA 'Microsoft\WinGet\Links\oh-my-posh.exe'),
+    (Join-Path $env:ProgramFiles 'oh-my-posh\bin\oh-my-posh.exe')
+) | Where-Object { $_ -and (Test-Path -LiteralPath $_ -PathType Leaf) }
+
+$ohMyPosh = $ohMyPoshCandidates | Select-Object -First 1
+if (-not $ohMyPosh) {
+    throw 'Oh My Posh was installed, but oh-my-posh.exe could not be found. Restart PowerShell and run this script again.'
+}
+
+$terminalFont = 'MesloLGM Nerd Font Mono'
+Add-Type -AssemblyName System.Drawing
+$installedFonts = [System.Drawing.Text.InstalledFontCollection]::new()
+try {
+    $fontInstalled = $terminalFont -in $installedFonts.Families.Name
+}
+finally {
+    $installedFonts.Dispose()
+}
+
+if (-not $fontInstalled) {
+    Write-Host 'Installing Meslo Nerd Font...'
+    & $ohMyPosh font install Meslo
+    if ($LASTEXITCODE -ne 0) {
+        throw "Failed to install Meslo Nerd Font (exit code: $LASTEXITCODE)."
+    }
+}
+
+$windowsTerminalSettingsPaths = @(
+    (Join-Path $env:LOCALAPPDATA 'Packages\Microsoft.WindowsTerminal_8wekyb3d8bbwe\LocalState\settings.json'),
+    (Join-Path $env:LOCALAPPDATA 'Packages\Microsoft.WindowsTerminalPreview_8wekyb3d8bbwe\LocalState\settings.json'),
+    (Join-Path $env:LOCALAPPDATA 'Microsoft\Windows Terminal\settings.json')
+)
+
+New-Item -ItemType Directory -Path (Split-Path -Parent $windowsTerminalSettingsPaths[0]) -Force | Out-Null
+
+foreach ($settingsPath in $windowsTerminalSettingsPaths) {
+    if (-not (Test-Path -LiteralPath (Split-Path -Parent $settingsPath) -PathType Container)) {
+        continue
+    }
+
+    $settings = @{}
+    if (Test-Path -LiteralPath $settingsPath -PathType Leaf) {
+        $settings = Get-Content -LiteralPath $settingsPath -Raw | ConvertFrom-Json -AsHashtable
+        if ($null -eq $settings -or $settings -isnot [System.Collections.IDictionary]) {
+            throw "Expected a JSON object in Windows Terminal settings at $settingsPath."
+        }
+        Backup-File -Path $settingsPath
+    }
+
+    if (-not $settings.Contains('profiles')) {
+        $settings['profiles'] = @{}
+    }
+    if (-not $settings['profiles'].Contains('defaults')) {
+        $settings['profiles']['defaults'] = @{}
+    }
+    if (-not $settings['profiles']['defaults'].Contains('font')) {
+        $settings['profiles']['defaults']['font'] = @{}
+    }
+    $settings['profiles']['defaults']['font']['face'] = $terminalFont
+    foreach ($terminalProfile in $settings['profiles']['list']) {
+        if ($terminalProfile['font'] -and $terminalProfile['font'].Contains('face')) {
+            $terminalProfile['font']['face'] = $terminalFont
+        }
+    }
+
+    # Restore-on-launch would override the fixed startup layout.
+    $settings['firstWindowPreference'] = 'defaultProfile'
+    $settings['startupActions'] = 'new-tab -p "PowerShell"; split-pane -V -s 0.3 -p "PowerShell"; move-focus left'
+
+    $settings | ConvertTo-Json -Depth 100 | Set-Content -LiteralPath $settingsPath -Encoding utf8
+    Write-Host "Configured Windows Terminal font and 70/30 PowerShell startup layout at $settingsPath."
+}
+
+$documentsDirectory = [Environment]::GetFolderPath('MyDocuments')
+$powerShellProfilePaths = @(
+    (Join-Path $documentsDirectory 'PowerShell\profile.ps1'),
+    (Join-Path $documentsDirectory 'WindowsPowerShell\profile.ps1')
+)
+
+foreach ($profilePath in $powerShellProfilePaths) {
+    $profileContent = ''
+    if (Test-Path -LiteralPath $profilePath -PathType Leaf) {
+        $profileContent = Get-Content -LiteralPath $profilePath -Raw
+    }
+    if ($profileContent -match '(?m)^\s*(?:&\s+)?oh-my-posh(?:\.exe)?\s+init\b') {
+        Write-Host "Oh My Posh is already configured at $profilePath."
+        continue
+    }
+
+    New-Item -ItemType Directory -Path (Split-Path -Parent $profilePath) -Force | Out-Null
+    Backup-File -Path $profilePath
+    Set-Content -LiteralPath $profilePath `
+        -Value ($profileContent + "`noh-my-posh init pwsh | Invoke-Expression") `
+        -Encoding utf8BOM
+    Write-Host "Configured Oh My Posh at $profilePath."
+}
 
 $codeInsidersCandidates = @(
     (Get-Command code-insiders.cmd -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Source),
@@ -80,6 +182,7 @@ $vsCodeSettings = [ordered]@{
     'editor.renderControlCharacters' = $true
     'files.encoding'              = 'utf8'
     'workbench.colorTheme'        = 'Solarized Dark'
+    'terminal.integrated.fontFamily' = $terminalFont
     '[json]'                      = [ordered]@{
         'editor.insertSpaces' = $true
         'editor.tabSize'      = 2
