@@ -124,9 +124,31 @@ foreach ($settingsPath in $windowsTerminalSettingsPaths) {
         }
     }
 
-    # Restore-on-launch would override the fixed startup layout.
+    $powerShellProfile = $settings['profiles']['list'] |
+        Where-Object {
+            $null -ne $_ -and (
+                $_['source'] -eq 'Windows.Terminal.PowershellCore' -or
+                $_['guid'] -eq '{574e775e-4f2a-5b96-ac1e-a2962a402336}'
+            )
+        } |
+        Select-Object -First 1
+    if (-not $powerShellProfile) {
+        $powerShellProfile = @{
+            guid        = '{574e775e-4f2a-5b96-ac1e-a2962a402336}'
+            name        = 'PowerShell'
+            source      = 'Windows.Terminal.PowershellCore'
+            commandline = '"{0}"' -f (Join-Path $PSHOME 'pwsh.exe')
+        }
+        $settings['profiles']['list'] = @(
+            $settings['profiles']['list'] | Where-Object { $null -ne $_ }
+        ) + $powerShellProfile
+    }
+    $powerShellProfile['hidden'] = $false
+    $settings['defaultProfile'] = $powerShellProfile['guid']
+
+    # Use the same PowerShell 7 profile for startup and newly opened tabs.
     $settings['firstWindowPreference'] = 'defaultProfile'
-    $settings['startupActions'] = 'new-tab -p "PowerShell"; split-pane -V -s 0.3 -p "PowerShell"; move-focus left'
+    $settings['startupActions'] = 'new-tab -p "{0}"; split-pane -V -s 0.3 -p "{0}"; move-focus left' -f $settings['defaultProfile']
 
     $settings | ConvertTo-Json -Depth 100 | Set-Content -LiteralPath $settingsPath -Encoding utf8
     Write-Host "Configured Windows Terminal font and 70/30 PowerShell startup layout at $settingsPath."
