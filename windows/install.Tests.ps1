@@ -51,6 +51,93 @@ BeforeAll {
             $_.Extent.EndOffset -le $end.Extent.StartOffset
         } | ForEach-Object { $_.Extent.Text }) -join "`n"
     )
+
+    $start = $statements | Where-Object {
+        $_ -is [System.Management.Automation.Language.AssignmentStatementAst] -and
+        $_.Left.Extent.Text -eq '$promptConfigPath'
+    }
+    $end = $statements | Where-Object {
+        $_ -is [System.Management.Automation.Language.ForEachStatementAst] -and
+        $_.Variable.VariablePath.UserPath -eq 'profilePath'
+    }
+    if (-not $start -or -not $end) {
+        throw 'Could not locate the PowerShell prompt configuration section.'
+    }
+    $script:configurePrompt = [scriptblock]::Create(
+        "param([string] `$PSScriptRoot)`n" + (($statements | Where-Object {
+            $_.Extent.StartOffset -ge $start.Extent.StartOffset -and
+            $_.Extent.EndOffset -le $end.Extent.EndOffset
+        } | ForEach-Object { $_.Extent.Text }) -join "`n")
+    )
+    $script:promptConfigSourcePath = Join-Path $PSScriptRoot 'prompt.omp.json'
+}
+
+Describe 'Font-independent PowerShell prompt' {
+    BeforeEach {
+        $root = Join-Path $TestDrive ("config's " + [guid]::NewGuid())
+        New-Item -ItemType Directory -Path $root | Out-Null
+        Copy-Item -LiteralPath $promptConfigSourcePath -Destination $root
+        $powerShellProfilePaths = @(
+            (Join-Path $root 'PowerShell\profile.ps1'),
+            (Join-Path $root 'WindowsPowerShell\profile.ps1')
+        )
+    }
+
+    It 'configures both fresh profiles with a correctly quoted local theme path' {
+        & $configurePrompt $root
+
+        foreach ($path in $powerShellProfilePaths) {
+            $errors = $null
+            $profile = [System.Management.Automation.Language.Parser]::ParseFile(
+                $path, [ref] $null, [ref] $errors
+            )
+            $errors | Should -BeNullOrEmpty
+            $init = $profile.Find({
+                param($node)
+                $node -is [System.Management.Automation.Language.CommandAst] -and
+                $node.GetCommandName() -eq 'oh-my-posh'
+            }, $true)
+            $init.CommandElements[4].Value | Should -Be (Join-Path $root 'prompt.omp.json')
+        }
+    }
+
+    It 'migrates the old default initialization without changing other profile commands or duplicating init' {
+        $path = $powerShellProfilePaths[0]
+        New-Item -ItemType Directory -Path (Split-Path -Parent $path) -Force | Out-Null
+        $original = "Write-Host 'before'`r`noh-my-posh init pwsh | Invoke-Expression`r`nWrite-Host 'after'"
+        Set-Content -LiteralPath $path -Value $original
+
+        & $configurePrompt $root
+        & $configurePrompt $root
+
+        $result = Get-Content -LiteralPath $path -Raw
+        $result | Should -Match "^Write-Host 'before'"
+        $result | Should -Match "Write-Host 'after'"
+        $result | Should -Match 'init pwsh --config'
+        ([regex]::Matches($result, 'oh-my-posh init')).Count | Should -Be 1
+        (Get-Content -LiteralPath "$path.bak" -Raw).TrimEnd() | Should -Be $original
+    }
+
+    It 'preserves an explicitly customized Oh My Posh initialization' {
+        $path = $powerShellProfilePaths[0]
+        New-Item -ItemType Directory -Path (Split-Path -Parent $path) -Force | Out-Null
+        $original = "oh-my-posh init pwsh --config 'custom.omp.json' | Invoke-Expression"
+        Set-Content -LiteralPath $path -Value $original
+
+        & $configurePrompt $root
+
+        (Get-Content -LiteralPath $path -Raw).TrimEnd() | Should -Be $original
+        Test-Path -LiteralPath "$path.bak" | Should -BeFalse
+    }
+
+    It 'fails before modifying profiles when the local theme is missing' {
+        Remove-Item -LiteralPath (Join-Path $root 'prompt.omp.json')
+
+        { & $configurePrompt $root } | Should -Throw '*configuration not found*'
+        foreach ($path in $powerShellProfilePaths) {
+            Test-Path -LiteralPath $path | Should -BeFalse
+        }
+    }
 }
 
 Describe 'VS Code default fonts' {

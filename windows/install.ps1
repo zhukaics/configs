@@ -130,20 +130,36 @@ $powerShellProfilePaths = @(
     (Join-Path $documentsDirectory 'WindowsPowerShell\profile.ps1')
 )
 
+$promptConfigPath = Join-Path $PSScriptRoot 'prompt.omp.json'
+if (-not (Test-Path -LiteralPath $promptConfigPath -PathType Leaf)) {
+    throw "Oh My Posh configuration not found: $promptConfigPath"
+}
+$promptInit = "oh-my-posh init pwsh --config '$($promptConfigPath -replace "'", "''")' | Invoke-Expression"
+$defaultPromptPattern = '(?m)^[ \t]*(?:&[ \t]+)?oh-my-posh(?:\.exe)?[ \t]+init[ \t]+pwsh[ \t]*\|[ \t]*Invoke-Expression[ \t]*\r?$'
+
 foreach ($profilePath in $powerShellProfilePaths) {
     $profileContent = ''
     if (Test-Path -LiteralPath $profilePath -PathType Leaf) {
         $profileContent = Get-Content -LiteralPath $profilePath -Raw
     }
-    if ($profileContent -match '(?m)^\s*(?:&\s+)?oh-my-posh(?:\.exe)?\s+init\b') {
+    if ($profileContent -match $defaultPromptPattern) {
+        $profileContent = [regex]::Replace($profileContent, $defaultPromptPattern, [System.Text.RegularExpressions.MatchEvaluator] {
+            param($match)
+            $promptInit
+        })
+    }
+    elseif ($profileContent -match '(?m)^[ \t]*(?:&[ \t]+)?oh-my-posh(?:\.exe)?[ \t]+init\b') {
         Write-Host "Oh My Posh is already configured at $profilePath."
         continue
+    }
+    else {
+        $profileContent += "`n$promptInit"
     }
 
     New-Item -ItemType Directory -Path (Split-Path -Parent $profilePath) -Force | Out-Null
     Backup-File -Path $profilePath
     Set-Content -LiteralPath $profilePath `
-        -Value ($profileContent + "`noh-my-posh init pwsh | Invoke-Expression") `
+        -Value $profileContent `
         -Encoding utf8BOM
     Write-Host "Configured Oh My Posh at $profilePath."
 }
