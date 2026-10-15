@@ -68,11 +68,11 @@ if (-not $ohMyPosh) {
     throw 'Oh My Posh was installed, but oh-my-posh.exe could not be found. Restart PowerShell and run this script again.'
 }
 
-$terminalFont = 'MesloLGM Nerd Font Mono'
+$nerdFont = 'MesloLGM Nerd Font Mono'
 Add-Type -AssemblyName System.Drawing
 $installedFonts = [System.Drawing.Text.InstalledFontCollection]::new()
 try {
-    $fontInstalled = $terminalFont -in $installedFonts.Families.Name
+    $fontInstalled = $nerdFont -in $installedFonts.Families.Name
 }
 finally {
     $installedFonts.Dispose()
@@ -116,13 +116,13 @@ foreach ($settingsPath in $windowsTerminalSettingsPaths) {
     if (-not $settings['profiles'].Contains('defaults')) {
         $settings['profiles']['defaults'] = @{}
     }
-    if (-not $settings['profiles']['defaults'].Contains('font')) {
-        $settings['profiles']['defaults']['font'] = @{}
-    }
-    $settings['profiles']['defaults']['font']['face'] = $terminalFont
-    foreach ($terminalProfile in $settings['profiles']['list']) {
-        if ($terminalProfile['font'] -and $terminalProfile['font'].Contains('face')) {
-            $terminalProfile['font']['face'] = $terminalFont
+    # Remove our per-user font overrides: packaged Terminal can fail to initialize them.
+    foreach ($terminalProfile in @($settings['profiles']['defaults']) + @($settings['profiles']['list'])) {
+        if ($terminalProfile -and $terminalProfile['font'] -and $terminalProfile['font']['face'] -eq $nerdFont) {
+            $terminalProfile['font'].Remove('face')
+            if ($terminalProfile['font'].Count -eq 0) {
+                $terminalProfile.Remove('font')
+            }
         }
     }
 
@@ -153,7 +153,7 @@ foreach ($settingsPath in $windowsTerminalSettingsPaths) {
     $settings['startupActions'] = 'new-tab -p "{0}"; split-pane -V -s 0.3 -p "{0}"; move-focus left' -f $settings['defaultProfile']
 
     $settings | ConvertTo-Json -Depth 100 | Set-Content -LiteralPath $settingsPath -Encoding utf8
-    Write-Host "Configured Windows Terminal font and 70/30 PowerShell startup layout at $settingsPath."
+    Write-Host "Configured Windows Terminal with PowerShell 7 and a 70/30 startup layout at $settingsPath."
 }
 
 $documentsDirectory = [Environment]::GetFolderPath('MyDocuments')
@@ -206,7 +206,7 @@ $vsCodeSettings = [ordered]@{
     'editor.renderControlCharacters' = $true
     'files.encoding'              = 'utf8'
     'workbench.colorTheme'        = 'Solarized Dark'
-    'terminal.integrated.fontFamily' = $terminalFont
+    'terminal.integrated.fontFamily' = $nerdFont
     '[json]'                      = [ordered]@{
         'editor.insertSpaces' = $true
         'editor.tabSize'      = 2

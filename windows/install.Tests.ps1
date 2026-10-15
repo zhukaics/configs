@@ -89,7 +89,7 @@ Describe 'Windows Terminal setup' {
         $env:LOCALAPPDATA = Join-Path $TestDrive ([guid]::NewGuid().ToString())
         $settingsPath = Join-Path $env:LOCALAPPDATA 'Packages\Microsoft.WindowsTerminal_8wekyb3d8bbwe\LocalState\settings.json'
         New-Item -ItemType Directory -Path (Split-Path -Parent $settingsPath) -Force | Out-Null
-        $terminalFont = 'MesloLGM Nerd Font Mono'
+        $nerdFont = 'MesloLGM Nerd Font Mono'
     }
 
     AfterEach {
@@ -103,10 +103,15 @@ Describe 'Windows Terminal setup' {
             defaultProfile = $legacyGuid
             copyOnSelect = $true
             profiles = @{
-                defaults = @{}
+                defaults = @{ font = @{ face = $nerdFont; size = 14 } }
                 list = @(
                     @{ guid = $legacyGuid; name = 'Windows PowerShell'; commandline = 'powershell.exe' },
-                    @{ guid = $modernGuid; name = 'My renamed PowerShell'; source = 'Windows.Terminal.PowershellCore' }
+                    @{
+                        guid = $modernGuid
+                        name = 'My renamed PowerShell'
+                        source = 'Windows.Terminal.PowershellCore'
+                        font = @{ face = $nerdFont; weight = 'semi-bold' }
+                    }
                 )
             }
         } | ConvertTo-Json -Depth 10
@@ -122,6 +127,10 @@ Describe 'Windows Terminal setup' {
         $result.profiles.list.Count | Should -Be 2
         $result.profiles.list[0].commandline | Should -Be 'powershell.exe'
         $result.profiles.list[1].name | Should -Be 'My renamed PowerShell'
+        $result.profiles.defaults.font.Contains('face') | Should -BeFalse
+        $result.profiles.defaults.font.size | Should -Be 14
+        $result.profiles.list[1].font.Contains('face') | Should -BeFalse
+        $result.profiles.list[1].font.weight | Should -Be 'semi-bold'
         $result.copyOnSelect | Should -BeTrue
         (Get-Content -LiteralPath "$settingsPath.bak" -Raw).TrimEnd() | Should -Be $original
     }
@@ -136,7 +145,28 @@ Describe 'Windows Terminal setup' {
         $result.defaultProfile | Should -Be $profile.guid
         $profile.commandline | Should -Be ('"{0}"' -f (Join-Path $PSHOME 'pwsh.exe'))
         $profile.hidden | Should -BeFalse
-        $result.profiles.defaults.font.face | Should -Be $terminalFont
+        $result.profiles.defaults.Contains('font') | Should -BeFalse
+    }
+
+    It 'removes font-only Meslo overrides without replacing other chosen fonts' {
+        @{
+            profiles = @{
+                defaults = @{ font = @{ face = $nerdFont } }
+                list = @(
+                    @{ guid = '{61c54bbd-c2c6-5271-96e7-009a87ff44bf}'; font = @{ face = $nerdFont } },
+                    @{ guid = '{574e775e-4f2a-5b96-ac1e-a2962a402336}'; font = @{ face = 'Consolas'; size = 12 } }
+                )
+            }
+        } | ConvertTo-Json -Depth 10 | Set-Content -LiteralPath $settingsPath
+
+        & $configureTerminal
+        & $configureTerminal
+
+        $result = Get-Content -LiteralPath $settingsPath -Raw | ConvertFrom-Json -AsHashtable
+        $result.profiles.defaults.Contains('font') | Should -BeFalse
+        $result.profiles.list[0].Contains('font') | Should -BeFalse
+        $result.profiles.list[1].font.face | Should -Be 'Consolas'
+        $result.profiles.list[1].font.size | Should -Be 12
     }
 
     It 'uses the existing PowerShell source profile even when its GUID and name are customized' {
