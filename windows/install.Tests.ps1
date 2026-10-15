@@ -34,52 +34,68 @@ BeforeAll {
     }, $false)
     . ([scriptblock]::Create($backupFunction.Extent.Text))
 
-    $fontInstall = $statements | Where-Object {
-        $_ -is [System.Management.Automation.Language.IfStatementAst] -and
-        $_.Clauses[0].Item1.Extent.Text -eq '-not $fontInstalled'
+    $start = $statements | Where-Object {
+        $_ -is [System.Management.Automation.Language.AssignmentStatementAst] -and
+        $_.Left.Extent.Text -eq '$vsCodeSettingsDirectory'
     }
-    if (-not $fontInstall) {
-        throw 'Could not locate the font installation section.'
+    $end = $statements | Where-Object {
+        $_ -is [System.Management.Automation.Language.AssignmentStatementAst] -and
+        $_.Left.Extent.Text -eq '$neovimConfigDirectory'
     }
-    $script:installFont = [scriptblock]::Create($fontInstall.Extent.Text)
-    function Invoke-TestFontInstaller {
-        param($Command, $Action, $Archive)
+    if (-not $start -or -not $end) {
+        throw 'Could not locate the VS Code settings section.'
     }
+    $script:configureVsCode = [scriptblock]::Create(
+        ($statements | Where-Object {
+            $_.Extent.StartOffset -ge $start.Extent.StartOffset -and
+            $_.Extent.EndOffset -le $end.Extent.StartOffset
+        } | ForEach-Object { $_.Extent.Text }) -join "`n"
+    )
 }
 
-Describe 'Meslo font installation' {
+Describe 'VS Code default fonts' {
     BeforeEach {
-        $ohMyPosh = 'Invoke-TestFontInstaller'
-        $fontInstalled = $false
-        $savedExitCode = $global:LASTEXITCODE
-        Mock Invoke-TestFontInstaller { $global:LASTEXITCODE = 0 }
+        $originalAppData = $env:APPDATA
+        $env:APPDATA = Join-Path $TestDrive ([guid]::NewGuid().ToString())
+        $settingsPath = Join-Path $env:APPDATA 'Code - Insiders\User\settings.json'
     }
 
     AfterEach {
-        $global:LASTEXITCODE = $savedExitCode
+        $env:APPDATA = $originalAppData
     }
 
-    It 'installs directly from the official archive without looking up a release by font name' {
-        & $installFont
+    It 'does not override the font on a fresh setup' {
+        & $configureVsCode
 
-        Should -Invoke Invoke-TestFontInstaller -Times 1 -Exactly -ParameterFilter {
-            $Command -eq 'font' -and $Action -eq 'install' -and
-            $Archive -eq 'https://github.com/ryanoasis/nerd-fonts/releases/latest/download/Meslo.zip'
-        }
+        $result = Get-Content -LiteralPath $settingsPath -Raw | ConvertFrom-Json -AsHashtable
+        $result.Contains('terminal.integrated.fontFamily') | Should -BeFalse
     }
 
-    It 'still stops on installation failure and explains how to get diagnostics' {
-        Mock Invoke-TestFontInstaller { $global:LASTEXITCODE = 70 }
+    It 'removes the old generated font override while preserving unrelated settings' {
+        New-Item -ItemType Directory -Path (Split-Path -Parent $settingsPath) -Force | Out-Null
+        @{
+            'terminal.integrated.fontFamily' = 'MesloLGM Nerd Font Mono'
+            'editor.fontSize' = 16
+        } | ConvertTo-Json | Set-Content -LiteralPath $settingsPath
 
-        { & $installFont } | Should -Throw '*exit code: 70*--trace*'
+        & $configureVsCode
+        & $configureVsCode
+
+        $result = Get-Content -LiteralPath $settingsPath -Raw | ConvertFrom-Json -AsHashtable
+        $result.Contains('terminal.integrated.fontFamily') | Should -BeFalse
+        $result['editor.fontSize'] | Should -Be 16
+        Test-Path -LiteralPath "$settingsPath.bak" | Should -BeTrue
     }
 
-    It 'does not reinstall a font that is already present' {
-        $fontInstalled = $true
+    It 'does not remove a different font chosen by the user' {
+        New-Item -ItemType Directory -Path (Split-Path -Parent $settingsPath) -Force | Out-Null
+        @{ 'terminal.integrated.fontFamily' = 'Consolas' } |
+            ConvertTo-Json | Set-Content -LiteralPath $settingsPath
 
-        & $installFont
+        & $configureVsCode
 
-        Should -Invoke Invoke-TestFontInstaller -Times 0 -Exactly
+        $result = Get-Content -LiteralPath $settingsPath -Raw | ConvertFrom-Json -AsHashtable
+        $result['terminal.integrated.fontFamily'] | Should -Be 'Consolas'
     }
 }
 

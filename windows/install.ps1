@@ -56,38 +56,6 @@ Install-WinGetPackage -Id 'Neovim.Neovim'
 Install-WinGetPackage -Id 'JanDeDobbeleer.OhMyPosh'
 Install-WinGetPackage -Id 'Microsoft.WindowsTerminal'
 
-$ohMyPoshCandidates = @(
-    (Get-Command oh-my-posh -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Source),
-    (Join-Path $env:LOCALAPPDATA 'Programs\oh-my-posh\bin\oh-my-posh.exe'),
-    (Join-Path $env:LOCALAPPDATA 'Microsoft\WinGet\Links\oh-my-posh.exe'),
-    (Join-Path $env:ProgramFiles 'oh-my-posh\bin\oh-my-posh.exe')
-) | Where-Object { $_ -and (Test-Path -LiteralPath $_ -PathType Leaf) }
-
-$ohMyPosh = $ohMyPoshCandidates | Select-Object -First 1
-if (-not $ohMyPosh) {
-    throw 'Oh My Posh was installed, but oh-my-posh.exe could not be found. Restart PowerShell and run this script again.'
-}
-
-$nerdFont = 'MesloLGM Nerd Font Mono'
-Add-Type -AssemblyName System.Drawing
-$installedFonts = [System.Drawing.Text.InstalledFontCollection]::new()
-try {
-    $fontInstalled = $nerdFont -in $installedFonts.Families.Name
-}
-finally {
-    $installedFonts.Dispose()
-}
-
-if (-not $fontInstalled) {
-    Write-Host 'Installing Meslo Nerd Font...'
-    # A direct archive URL avoids the GitHub API release-discovery request.
-    $fontArchiveUrl = 'https://github.com/ryanoasis/nerd-fonts/releases/latest/download/Meslo.zip'
-    & $ohMyPosh font install $fontArchiveUrl
-    if ($LASTEXITCODE -ne 0) {
-        throw "Failed to install Meslo Nerd Font from $fontArchiveUrl (exit code: $LASTEXITCODE). Run oh-my-posh font install '$fontArchiveUrl' --trace for diagnostics."
-    }
-}
-
 $windowsTerminalSettingsPaths = @(
     (Join-Path $env:LOCALAPPDATA 'Packages\Microsoft.WindowsTerminal_8wekyb3d8bbwe\LocalState\settings.json'),
     (Join-Path $env:LOCALAPPDATA 'Packages\Microsoft.WindowsTerminalPreview_8wekyb3d8bbwe\LocalState\settings.json'),
@@ -116,9 +84,9 @@ foreach ($settingsPath in $windowsTerminalSettingsPaths) {
     if (-not $settings['profiles'].Contains('defaults')) {
         $settings['profiles']['defaults'] = @{}
     }
-    # Remove our per-user font overrides: packaged Terminal can fail to initialize them.
+    # Undo the font overrides written by older versions of this script.
     foreach ($terminalProfile in @($settings['profiles']['defaults']) + @($settings['profiles']['list'])) {
-        if ($terminalProfile -and $terminalProfile['font'] -and $terminalProfile['font']['face'] -eq $nerdFont) {
+        if ($terminalProfile -and $terminalProfile['font'] -and $terminalProfile['font']['face'] -eq 'MesloLGM Nerd Font Mono') {
             $terminalProfile['font'].Remove('face')
             if ($terminalProfile['font'].Count -eq 0) {
                 $terminalProfile.Remove('font')
@@ -206,7 +174,6 @@ $vsCodeSettings = [ordered]@{
     'editor.renderControlCharacters' = $true
     'files.encoding'              = 'utf8'
     'workbench.colorTheme'        = 'Solarized Dark'
-    'terminal.integrated.fontFamily' = $nerdFont
     '[json]'                      = [ordered]@{
         'editor.insertSpaces' = $true
         'editor.tabSize'      = 2
@@ -233,6 +200,10 @@ if (Test-Path -LiteralPath $vsCodeSettingsPath -PathType Leaf) {
         $existingVsCodeSettings[$setting.Key] = $setting.Value
     }
     $vsCodeSettings = $existingVsCodeSettings
+}
+
+if ($vsCodeSettings['terminal.integrated.fontFamily'] -eq 'MesloLGM Nerd Font Mono') {
+    $vsCodeSettings.Remove('terminal.integrated.fontFamily')
 }
 
 $vsCodeSettings |
