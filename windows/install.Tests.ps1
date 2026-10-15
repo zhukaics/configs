@@ -33,6 +33,54 @@ BeforeAll {
         $node.Name -eq 'Backup-File'
     }, $false)
     . ([scriptblock]::Create($backupFunction.Extent.Text))
+
+    $fontInstall = $statements | Where-Object {
+        $_ -is [System.Management.Automation.Language.IfStatementAst] -and
+        $_.Clauses[0].Item1.Extent.Text -eq '-not $fontInstalled'
+    }
+    if (-not $fontInstall) {
+        throw 'Could not locate the font installation section.'
+    }
+    $script:installFont = [scriptblock]::Create($fontInstall.Extent.Text)
+    function Invoke-TestFontInstaller {
+        param($Command, $Action, $Archive)
+    }
+}
+
+Describe 'Meslo font installation' {
+    BeforeEach {
+        $ohMyPosh = 'Invoke-TestFontInstaller'
+        $fontInstalled = $false
+        $savedExitCode = $global:LASTEXITCODE
+        Mock Invoke-TestFontInstaller { $global:LASTEXITCODE = 0 }
+    }
+
+    AfterEach {
+        $global:LASTEXITCODE = $savedExitCode
+    }
+
+    It 'installs directly from the official archive without looking up a release by font name' {
+        & $installFont
+
+        Should -Invoke Invoke-TestFontInstaller -Times 1 -Exactly -ParameterFilter {
+            $Command -eq 'font' -and $Action -eq 'install' -and
+            $Archive -eq 'https://github.com/ryanoasis/nerd-fonts/releases/latest/download/Meslo.zip'
+        }
+    }
+
+    It 'still stops on installation failure and explains how to get diagnostics' {
+        Mock Invoke-TestFontInstaller { $global:LASTEXITCODE = 70 }
+
+        { & $installFont } | Should -Throw '*exit code: 70*--trace*'
+    }
+
+    It 'does not reinstall a font that is already present' {
+        $fontInstalled = $true
+
+        & $installFont
+
+        Should -Invoke Invoke-TestFontInstaller -Times 0 -Exactly
+    }
 }
 
 Describe 'Windows Terminal setup' {

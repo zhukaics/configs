@@ -80,9 +80,11 @@ finally {
 
 if (-not $fontInstalled) {
     Write-Host 'Installing Meslo Nerd Font...'
-    & $ohMyPosh font install Meslo
+    # A direct archive URL avoids the GitHub API release-discovery request.
+    $fontArchiveUrl = 'https://github.com/ryanoasis/nerd-fonts/releases/latest/download/Meslo.zip'
+    & $ohMyPosh font install $fontArchiveUrl
     if ($LASTEXITCODE -ne 0) {
-        throw "Failed to install Meslo Nerd Font (exit code: $LASTEXITCODE)."
+        throw "Failed to install Meslo Nerd Font from $fontArchiveUrl (exit code: $LASTEXITCODE). Run oh-my-posh font install '$fontArchiveUrl' --trace for diagnostics."
     }
 }
 
