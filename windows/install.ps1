@@ -135,7 +135,8 @@ if (-not (Test-Path -LiteralPath $promptConfigPath -PathType Leaf)) {
     throw "Oh My Posh configuration not found: $promptConfigPath"
 }
 $promptInit = "oh-my-posh init pwsh --config '$($promptConfigPath -replace "'", "''")' | Invoke-Expression"
-$defaultPromptPattern = '(?m)^[ \t]*(?:&[ \t]+)?oh-my-posh(?:\.exe)?[ \t]+init[ \t]+pwsh[ \t]*\|[ \t]*Invoke-Expression[ \t]*\r?$'
+$promptCommandPattern = '(?<command>(?:&[ \t]+)?(?:oh-my-posh(?:\.exe)?|''[^''\r\n]*[\\/]oh-my-posh(?:\.exe)?''|"[^"\r\n]*[\\/]oh-my-posh(?:\.exe)?"))'
+$defaultPromptPattern = '(?m)^[ \t]*' + $promptCommandPattern + '[ \t]+init[ \t]+pwsh[ \t]*\|[ \t]*Invoke-Expression[ \t]*\r?$'
 
 foreach ($profilePath in $powerShellProfilePaths) {
     $profileContent = ''
@@ -145,10 +146,10 @@ foreach ($profilePath in $powerShellProfilePaths) {
     if ($profileContent -match $defaultPromptPattern) {
         $profileContent = [regex]::Replace($profileContent, $defaultPromptPattern, [System.Text.RegularExpressions.MatchEvaluator] {
             param($match)
-            $promptInit
+            $match.Groups['command'].Value + " init pwsh --config '$($promptConfigPath -replace "'", "''")' | Invoke-Expression"
         })
     }
-    elseif ($profileContent -match '(?m)^[ \t]*(?:&[ \t]+)?oh-my-posh(?:\.exe)?[ \t]+init\b') {
+    elseif ($profileContent -match ('(?m)^[ \t]*' + $promptCommandPattern + '[ \t]+init\b')) {
         Write-Host "Oh My Posh is already configured at $profilePath."
         continue
     }

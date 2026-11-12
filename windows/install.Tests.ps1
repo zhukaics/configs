@@ -101,10 +101,17 @@ Describe 'Font-independent PowerShell prompt' {
         }
     }
 
-    It 'migrates the old default initialization without changing other profile commands or duplicating init' {
+    It 'migrates default initialization using <Command> without changing other commands or duplicating init' -TestCases @(
+        @{ Command = 'oh-my-posh' },
+        @{ Command = '& oh-my-posh.exe' },
+        @{ Command = "& 'C:\Users\Test User\Microsoft\WindowsApps\oh-my-posh.exe'" },
+        @{ Command = '& "C:\Users\Test User\Microsoft\WindowsApps\oh-my-posh.exe"' }
+    ) {
+        param($Command)
+
         $path = $powerShellProfilePaths[0]
         New-Item -ItemType Directory -Path (Split-Path -Parent $path) -Force | Out-Null
-        $original = "Write-Host 'before'`r`noh-my-posh init pwsh | Invoke-Expression`r`nWrite-Host 'after'"
+        $original = "Write-Host 'before'`r`n$Command init pwsh | Invoke-Expression`r`nWrite-Host 'after'"
         Set-Content -LiteralPath $path -Value $original
 
         & $configurePrompt $root
@@ -114,14 +121,20 @@ Describe 'Font-independent PowerShell prompt' {
         $result | Should -Match "^Write-Host 'before'"
         $result | Should -Match "Write-Host 'after'"
         $result | Should -Match 'init pwsh --config'
-        ([regex]::Matches($result, 'oh-my-posh init')).Count | Should -Be 1
+        $result | Should -Match ([regex]::Escape("$Command init pwsh --config"))
+        ([regex]::Matches($result, 'init pwsh')).Count | Should -Be 1
         (Get-Content -LiteralPath "$path.bak" -Raw).TrimEnd() | Should -Be $original
     }
 
-    It 'preserves an explicitly customized Oh My Posh initialization' {
+    It 'preserves an explicitly customized Oh My Posh initialization using <Command>' -TestCases @(
+        @{ Command = 'oh-my-posh' },
+        @{ Command = "& 'C:\Users\Test User\Microsoft\WindowsApps\oh-my-posh.exe'" }
+    ) {
+        param($Command)
+
         $path = $powerShellProfilePaths[0]
         New-Item -ItemType Directory -Path (Split-Path -Parent $path) -Force | Out-Null
-        $original = "oh-my-posh init pwsh --config 'custom.omp.json' | Invoke-Expression"
+        $original = "$Command init pwsh --config 'custom.omp.json' | Invoke-Expression"
         Set-Content -LiteralPath $path -Value $original
 
         & $configurePrompt $root
